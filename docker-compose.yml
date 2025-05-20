@@ -1,0 +1,290 @@
+services:
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: InventoryService/Dockerfile
+    container_name: inventory-service
+    ports:
+      - "5003:8080"  # Host:Container (you can choose any free host port)
+    depends_on:
+      - sql-server     # Optional, only if you depend on SQL Server
+    environment:
+      # MongoDB
+      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=Inventory;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: "Development"
+ 
+  auth-service:
+    build:
+      context: .
+      dockerfile: AuthService/Dockerfile
+    container_name: auth-service
+    ports:
+      - "5001:8080"  # Host:Container (you can choose any free host port)
+    depends_on:
+      - sql-server     # Optional, only if you depend on SQL Server
+    environment:
+      # MongoDB
+      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=AuthDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: "Development"
+ 
+  catalog-service:
+    build:
+      context: .
+      dockerfile: CatalogService/Dockerfile
+    container_name: catalog-service
+    ports:
+      - "5004:8080" # Host:Container
+    depends_on:
+      - mongodb
+      - elasticsearch
+      - rabbitmq
+    environment:
+      # MongoDB
+      ConnectionStrings__MongoDbSettings: "mongodb://admin:password@mongodb:27017"
+
+      # Elasticsearch
+      ElasticSearchUrl: "http://elasticsearch:9200"
+      ElasticSearchIndexName: "catalogitem"
+
+      # Inventory service
+      InventoryServiceUrl: "http://inventory-service:8080"
+
+      # RabbitMQ
+      RabbitMq__HostName: "rabbitmq"
+      RabbitMq__UserName: "admin"
+      RabbitMq__Password: "admin"
+      RabbitMq__Port: "5672"
+
+      # ASP.NET Core
+      ASPNETCORE_ENVIRONMENT: "Development"
+
+  catalog-sync-processor:
+    build:
+      context: .
+      dockerfile: CatalogElasticSyncProcessor/Dockerfile
+    container_name: catalog-sync-processor
+    depends_on:
+      - rabbitmq
+      - elasticsearch
+      - catalog-service
+    environment:
+      RabbitMq__HostName: "rabbitmq"
+      RabbitMq__UserName: "admin"
+      RabbitMq__Password: "admin"
+      RabbitMq__Port: "5672"
+      CatalogSync__CatalogBaseUrl: "http://catalog-service:8080"
+      ElasticSearchUrl: "http://elasticsearch:9200"
+      CatalogSync__ElasticIndexName: "catalogitem"
+      ASPNETCORE_ENVIRONMENT: "Development"
+
+  cart-service:
+    build:
+      context: .
+      dockerfile: CartService/Dockerfile
+    container_name: cart-service
+    ports:
+      - "5006:8080"  # Host:Container (adjust as needed)
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - Redis__Host=redis
+    depends_on:
+      - redis
+ 
+  order-service:
+    build:
+      context: .
+      dockerfile: OrderService/Dockerfile
+    container_name: order-service
+    ports:
+      - "5007:8080"
+    depends_on:
+      - sql-server
+      - cart-service
+      - temporal
+      - temporal-ui
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__OrderDb=Server=sql-server,1433;Database=OrderDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;
+      - CartService__BaseUrl=http://cart-service:8080
+      - Temporal__Address=temporal:7233
+
+  # kafka:
+  #   image: bitnami/kafka:latest
+  #   container_name: kafka
+  #   ports:
+  #     - "9092:9092"
+  #     - "9093:9093"
+  #   environment:
+  #     KAFKA_CFG_NODE_ID: 1
+  #     KAFKA_CFG_PROCESS_ROLES: controller,broker
+  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+  #     KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_KRAFT_CLUSTER_ID: L7qLQmsqRLyIxENaxRzgYw
+  #     ALLOW_PLAINTEXT_LISTENER: yes
+  #   volumes:
+  #     - kafka-data:/bitnami/kafka
+      
+  sql-server:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: sql-server
+    environment:
+      SA_PASSWORD: "Welcome@123"
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Express"
+    ports:
+      - "1433:1433"
+    volumes:
+    - sqlserver-data:/var/opt/mssql
+
+  mongodb:
+    image: mongo:6.0
+    container_name: mongo_container
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo_data:/data/db
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo_express_ui
+    restart: always
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: password
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    depends_on:
+      - mongodb
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - bootstrap.memory_lock=true
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - "9200:9200"
+    volumes:
+      - esdata:/usr/share/elasticsearch/data
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.12.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    volumes:
+      - kibana:/usr/share/kibana/data
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"     # AMQP protocol
+      - "15672:15672"   # Web UI
+    environment:
+      - RABBITMQ_DEFAULT_USER=admin
+      - RABBITMQ_DEFAULT_PASS=admin
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+
+  redis:
+    image: redis:latest
+    container_name: redis
+    ports:
+      - "6379:6379"  # 6379 is Redis default port
+    restart: always
+    volumes:
+      - redis-data:/data
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    ports:
+      - "5540:5540"
+    depends_on:
+      - redis
+
+  postgresql:
+    container_name: temporal-postgresql
+    environment:
+      POSTGRES_PASSWORD: temporal
+      POSTGRES_USER: temporal
+    image: postgres:12
+    ports:
+      - 5432:5432
+    volumes:
+      - temporal-postgres-data:/var/lib/postgresql/data
+
+  temporal:
+    container_name: temporal
+    depends_on:
+      - postgresql
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgresql
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    image: temporalio/auto-setup
+    ports:
+      - 7233:7233
+    volumes:
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig   
+
+  temporal-admin-tools:
+    container_name: temporal-admin-tools
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CLI_ADDRESS=temporal:7233
+    image: temporalio/admin-tools
+    stdin_open: true
+    tty: true
+
+  temporal-ui:
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    image: temporalio/ui
+    ports:
+      - 8080:8080
+
+ 
+volumes:
+  kafka-data:
+  mongo_data:
+  esdata:
+  rabbitmq-data:
+  kibana:
+  sqlserver-data:
+  redis-data:
+  temporal-postgres-data:

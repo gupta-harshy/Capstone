@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-CheckoutOrchestrator-c9d88221-f871-435d-bf44-0b7cc1322dce</UserSecretsId>
+    <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.VisualStudio.Azure.Containers.Tools.Targets" Version="1.20.1" />
+    <PackageReference Include="Temporalio" Version="1.6.0" />
+    <PackageReference Include="Temporalio.Extensions.Hosting" Version="1.6.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CheckoutContract\CheckoutContract.csproj" />
+    <ProjectReference Include="..\CommonDependencies\CommonDependencies.csproj" />
+  </ItemGroup>
+</Project>
