@@ -33,7 +33,13 @@ public class CheckoutWorkflow : ICheckoutWorkflow
     [WorkflowRun]
     public async Task RunAsync(CheckoutInput input)
     {
-        // 1) Fetch the full order details
+        // Fetch the token details
+        var authResponse = await Workflow.ExecuteActivityAsync(
+            (ICheckoutActivities a) => a.GetAuthTokenAsync(input.UserId),
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) }
+        );
+
+        // Fetch the full order details
         var order = await Workflow.ExecuteActivityAsync(
             (ICheckoutActivities a) => a.GetOrderDetailsAsync(input.OrderId),
             new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(15) }
@@ -41,7 +47,7 @@ public class CheckoutWorkflow : ICheckoutWorkflow
 
         var inventoryRequests = _mapper.Map<List<InventoryRequestDto>>(order.Items);
 
-        // 2) Reserve inventory with the concrete item list
+        // Reserve inventory with the concrete item list
         var inventoryActivityOption = new ActivityOptions
         {
             StartToCloseTimeout = TimeSpan.FromMinutes(1),
@@ -54,7 +60,7 @@ public class CheckoutWorkflow : ICheckoutWorkflow
             }
         };
 
-        // 3) Update Order Status
+        // Update Order Status
         var updateOrderActivityOption = new ActivityOptions
         {
             StartToCloseTimeout = TimeSpan.FromMinutes(1),
@@ -102,6 +108,7 @@ public class CheckoutWorkflow : ICheckoutWorkflow
                 NonRetryableErrorTypes = new[] { "PaymentFailed" }
             }
         };
+        
         try
         {
             await Workflow.ExecuteActivityAsync(
@@ -139,16 +146,23 @@ public class CheckoutWorkflow : ICheckoutWorkflow
             throw;
         }
 
-
-        // 4) Send confirmation event
+        // Complete the workflow
         await Workflow.ExecuteActivityAsync(
-            (ICheckoutActivities a) => a.SendOrderConfirmedEventAsync(input.OrderId),
-            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(10) }
+            (ICheckoutActivities a) => a.UpdateOrderStatusAsync(input.OrderId, OrderStatus.Completed.ToString()),
+            updateOrderActivityOption);
+
+        // Send confirmation event
+        await Workflow.ExecuteActivityAsync(
+            (ICheckoutActivities a) => a.ClearUserCart(authResponse.Token),
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(30) }
         );
 
-        // 5) Complete the workflow
+        // Send confirmation event
         await Workflow.ExecuteActivityAsync(
-            (ICheckoutActivities a) => a.UpdateOrderStatusAsync(input.OrderId, OrderStatus.Cancelled.ToString()),
-            updateOrderActivityOption);
+            (ICheckoutActivities a) => a.SendOrderConfirmedEventAsync(input.OrderId),
+            new ActivityOptions { StartToCloseTimeout = TimeSpan.FromSeconds(30) }
+        );
+
+        
     }
 }

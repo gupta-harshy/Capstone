@@ -19,6 +19,20 @@ public class CheckoutActivities : ICheckoutActivities
     }
 
     [Activity]
+    public async Task<AuthResponse> GetAuthTokenAsync(Guid userId)
+    {
+        var _authClient = _factory.CreateClient("auth");
+        var response = await _authClient.PostAsJsonAsync("/api/Auth/generate-token-userid", userId);
+        response.EnsureSuccessStatusCode();
+        var options = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+        };
+        var authResponse = await response.Content.ReadFromJsonAsync<AuthResponse>(options);
+        return authResponse ?? throw new ApplicationException("Failed to deserialize the authentication response.");
+    }
+
+    [Activity]
     public async Task<OrderResultDto> GetOrderDetailsAsync(Guid orderId)
     {
         var _orderClient = _factory.CreateClient("order");
@@ -124,10 +138,11 @@ public class CheckoutActivities : ICheckoutActivities
     }
 
     [Activity]
-    public async Task DeleteUserCartAsync(Guid orderId)
+    public async Task ClearUserCart(string token)
     {
-        // Publish event
-        await Task.CompletedTask;
+        var _cartClient = _factory.CreateClient("cart");
+        _cartClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var response = await _cartClient.PostAsJsonAsync("/api/Cart/clear", new StringContent(string.Empty));
+        response.EnsureSuccessStatusCode();
     }
-
 }

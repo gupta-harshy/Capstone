@@ -6,6 +6,9 @@ namespace CheckoutOrchestrator.Activities;
 public interface ICheckoutActivities
 {
     [Activity]
+    Task<AuthResponse> GetAuthTokenAsync(Guid userId);
+
+    [Activity]
     Task<OrderResultDto> GetOrderDetailsAsync(Guid orderId);
 
     [Activity]
@@ -16,6 +19,9 @@ public interface ICheckoutActivities
 
     [Activity]
     Task SendOrderConfirmedEventAsync(Guid orderId);
+
+    [Activity]
+    Task ClearUserCart(string token);
 
     [Activity]
     Task ReleaseInventoryAsync(List<InventoryRequestDto> items);

@@ -31,6 +31,8 @@ namespace CheckoutOrchestrator
                     services.AddAutoMapper(AppDomain.CurrentDomain.GetAssemblies());
                     services.AddHttpClient("order", c => c.BaseAddress = new Uri(configuration["OrderService:BaseUrl"] ?? string.Empty));
                     services.AddHttpClient("inventory", c => c.BaseAddress = new Uri(configuration["InventoryService:BaseUrl"] ?? string.Empty));
+                    services.AddHttpClient("auth", c => c.BaseAddress = new Uri(configuration["AuthService:BaseUrl"] ?? string.Empty));
+                    services.AddHttpClient("cart", c => c.BaseAddress = new Uri(configuration["CartService:BaseUrl"] ?? string.Empty));
                     // Register your activities and workflow worker
                     services.AddSingleton<ICheckoutActivities, CheckoutActivities>();
 
