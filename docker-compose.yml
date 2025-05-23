@@ -1,132 +1,4 @@
 services:
-
-  inventory-service:
-    build:
-      context: .
-      dockerfile: InventoryService/Dockerfile
-    container_name: inventory-service
-    ports:
-      - "5003:8080"  # Host:Container (you can choose any free host port)
-    depends_on:
-      - sql-server     # Optional, only if you depend on SQL Server
-    environment:
-      # MongoDB
-      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=Inventory;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
-      ASPNETCORE_ENVIRONMENT: "Development"
- 
-  auth-service:
-    build:
-      context: .
-      dockerfile: AuthService/Dockerfile
-    container_name: auth-service
-    ports:
-      - "5001:8080"  # Host:Container (you can choose any free host port)
-    depends_on:
-      - sql-server     # Optional, only if you depend on SQL Server
-    environment:
-      # MongoDB
-      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=AuthDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
-      ASPNETCORE_ENVIRONMENT: "Development"
- 
-  catalog-service:
-    build:
-      context: .
-      dockerfile: CatalogService/Dockerfile
-    container_name: catalog-service
-    ports:
-      - "5004:8080" # Host:Container
-    depends_on:
-      - mongodb
-      - elasticsearch
-      - rabbitmq
-    environment:
-      # MongoDB
-      ConnectionStrings__MongoDbSettings: "mongodb://admin:password@mongodb:27017"
-
-      # Elasticsearch
-      ElasticSearchUrl: "http://elasticsearch:9200"
-      ElasticSearchIndexName: "catalogitem"
-
-      # Inventory service
-      InventoryServiceUrl: "http://inventory-service:8080"
-
-      # RabbitMQ
-      RabbitMq__HostName: "rabbitmq"
-      RabbitMq__UserName: "admin"
-      RabbitMq__Password: "admin"
-      RabbitMq__Port: "5672"
-
-      # ASP.NET Core
-      ASPNETCORE_ENVIRONMENT: "Development"
-
-  catalog-sync-processor:
-    build:
-      context: .
-      dockerfile: CatalogElasticSyncProcessor/Dockerfile
-    container_name: catalog-sync-processor
-    depends_on:
-      - rabbitmq
-      - elasticsearch
-      - catalog-service
-    environment:
-      RabbitMq__HostName: "rabbitmq"
-      RabbitMq__UserName: "admin"
-      RabbitMq__Password: "admin"
-      RabbitMq__Port: "5672"
-      CatalogSync__CatalogBaseUrl: "http://catalog-service:8080"
-      ElasticSearchUrl: "http://elasticsearch:9200"
-      CatalogSync__ElasticIndexName: "catalogitem"
-      ASPNETCORE_ENVIRONMENT: "Development"
-
-  cart-service:
-    build:
-      context: .
-      dockerfile: CartService/Dockerfile
-    container_name: cart-service
-    ports:
-      - "5006:8080"  # Host:Container (adjust as needed)
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - Redis__Host=redis
-    depends_on:
-      - redis
- 
-  order-service:
-    build:
-      context: .
-      dockerfile: OrderService/Dockerfile
-    container_name: order-service
-    ports:
-      - "5007:8080"
-    depends_on:
-      - sql-server
-      - cart-service
-      - temporal
-      - temporal-ui
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ConnectionStrings__OrderDb=Server=sql-server,1433;Database=OrderDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;
-      - CartService__BaseUrl=http://cart-service:8080
-      - Temporal__Address=temporal:7233
-
-  # kafka:
-  #   image: bitnami/kafka:latest
-  #   container_name: kafka
-  #   ports:
-  #     - "9092:9092"
-  #     - "9093:9093"
-  #   environment:
-  #     KAFKA_CFG_NODE_ID: 1
-  #     KAFKA_CFG_PROCESS_ROLES: controller,broker
-  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-  #     KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-  #     KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
-  #     KAFKA_KRAFT_CLUSTER_ID: L7qLQmsqRLyIxENaxRzgYw
-  #     ALLOW_PLAINTEXT_LISTENER: yes
-  #   volumes:
-  #     - kafka-data:/bitnami/kafka
       
   sql-server:
     image: mcr.microsoft.com/mssql/server:2019-latest
@@ -138,7 +10,12 @@ services:
     ports:
       - "1433:1433"
     volumes:
-    - sqlserver-data:/var/opt/mssql
+      - sqlserver-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "echo 'SELECT 1' | /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P Welcome@123"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   mongodb:
     image: mongo:6.0
@@ -151,6 +28,11 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: password
     volumes:
       - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   mongo-express:
     image: mongo-express:latest
@@ -171,10 +53,10 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.12.0
     container_name: elasticsearch
     environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - bootstrap.memory_lock=true
-      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      discovery.type: single-node
+      xpack.security.enabled: 'false'
+      bootstrap.memory_lock: 'true'
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
     ulimits:
       memlock:
         soft: -1
@@ -183,6 +65,12 @@ services:
       - "9200:9200"
     volumes:
       - esdata:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 20s
+      timeout: 10s
+      retries: 5
+
 
   kibana:
     image: docker.elastic.co/kibana/kibana:8.12.0
@@ -201,19 +89,26 @@ services:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
-      - "5672:5672"     # AMQP protocol
-      - "15672:15672"   # Web UI
+      - "5672:5672"
+      - "15672:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=admin
       - RABBITMQ_DEFAULT_PASS=admin
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 
   redis:
     image: redis:latest
     container_name: redis
     ports:
-      - "6379:6379"  # 6379 is Redis default port
+      - "6379:6379"
     restart: always
     volumes:
       - redis-data:/data
@@ -228,55 +123,262 @@ services:
 
   postgresql:
     container_name: temporal-postgresql
-    environment:
-      POSTGRES_PASSWORD: temporal
-      POSTGRES_USER: temporal
     image: postgres:12
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
     ports:
-      - 5432:5432
+      - "5432:5432"
     volumes:
       - temporal-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   temporal:
     container_name: temporal
+    image: temporalio/auto-setup
     depends_on:
       - postgresql
-    environment:
-      - DB=postgres12
-      - DB_PORT=5432
-      - POSTGRES_USER=temporal
-      - POSTGRES_PWD=temporal
-      - POSTGRES_SEEDS=postgresql
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/auto-setup
     ports:
-      - 7233:7233
+      - "7233:7233"
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: temporal
+      POSTGRES_PWD: temporal
+      POSTGRES_SEEDS: temporal-postgresql
+      DYNAMIC_CONFIG_FILE_PATH: /etc/temporal/config/dynamicconfig/development-sql.yaml
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
     volumes:
-      - ./dynamicconfig:/etc/temporal/config/dynamicconfig   
+      - ./dynamicconfig:/etc/temporal/config/dynamicconfig
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
+    image: temporalio/admin-tools
     depends_on:
       - temporal
     environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CLI_ADDRESS=temporal:7233
-    image: temporalio/admin-tools
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CLI_ADDRESS: temporal:7233
     stdin_open: true
     tty: true
 
   temporal-ui:
     container_name: temporal-ui
+    image: temporalio/ui
     depends_on:
       - temporal
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
-    image: temporalio/ui
     ports:
-      - 8080:8080
+      - "8080:8080"
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+
+  inventory-service:
+    build:
+      context: .
+      dockerfile: InventoryService/Dockerfile
+    container_name: inventory-service
+    ports:
+      - "5003:8080"
+    depends_on:
+      - sql-server
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - sql-server:1433
+      - --timeout=300
+      - --
+      - dotnet
+      - InventoryService.dll
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=Inventory;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: Development
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: AuthService/Dockerfile
+    container_name: auth-service
+    ports:
+      - "5001:8080"
+    depends_on:
+      - sql-server
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - sql-server:1433
+      - --timeout=30
+      - --
+      - dotnet
+      - AuthService.dll
+    environment:
+      ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=AuthDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
+      ASPNETCORE_ENVIRONMENT: Development
+
+ 
+  catalog-service:
+    build:
+      context: .
+      dockerfile: CatalogService/Dockerfile
+    container_name: catalog-service
+    ports:
+      - "5004:8080"
+    depends_on:
+      - mongodb
+      - elasticsearch
+      - rabbitmq
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - mongodb:27017
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - elasticsearch:9200
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - rabbitmq:5672
+      - --timeout=300
+      - --
+      - dotnet
+      - CatalogService.dll
+    environment:
+      ConnectionStrings__MongoDbSettings: "mongodb://admin:password@mongodb:27017"
+      ElasticSearchUrl: http://elasticsearch:9200
+      ElasticSearchIndexName: catalogitem
+      InventoryServiceUrl: http://inventory-service:8080
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__UserName: admin
+      RabbitMq__Password: admin
+      RabbitMq__Port: "5672"
+      ASPNETCORE_ENVIRONMENT: Development
+
+  catalog-sync-processor:
+    build:
+      context: .
+      dockerfile: CatalogElasticSyncProcessor/Dockerfile
+    container_name: catalog-sync-processor
+    depends_on:
+      - rabbitmq
+      - elasticsearch
+      - catalog-service
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - rabbitmq:5672
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - elasticsearch:9200
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - catalog-service:8080
+      - --timeout=300
+      - --
+      - dotnet
+      - CatalogElasticSyncProcessor.dll
+    environment:
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__UserName: admin
+      RabbitMq__Password: admin
+      RabbitMq__Port: "5672"
+      CatalogSync__CatalogBaseUrl: http://catalog-service:8080
+      ElasticSearchUrl: http://elasticsearch:9200
+      CatalogSync__ElasticIndexName: catalogitem
+      ASPNETCORE_ENVIRONMENT: Development
+
+  cart-service:
+    build:
+      context: .
+      dockerfile: CartService/Dockerfile
+    container_name: cart-service
+    ports:
+      - "5006:8080"
+    depends_on:
+      - redis
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - redis:6379
+      - --timeout=300
+      - --
+      - dotnet
+      - CartService.dll
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Redis__Host: redis
+
+  order-service:
+    build:
+      context: .
+      dockerfile: OrderService/Dockerfile
+    container_name: order-service
+    ports:
+      - "5007:8080"
+    depends_on:
+      - sql-server
+      - cart-service
+      - temporal
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - sql-server:1433
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - cart-service:8080
+      - --timeout=300
+      - --
+      - /wait-for-it.sh
+      - temporal:7233
+      - --timeout=300
+      - --
+      - dotnet
+      - OrderService.dll
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__OrderDb: "Server=sql-server,1433;Database=OrderDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
+      CartService__BaseUrl: "http://cart-service:8080"
+      Temporal__Address: "temporal:7233"
+
+
+  # kafka:
+  #   image: bitnami/kafka:latest
+  #   container_name: kafka
+  #   ports:
+  #     - "9092:9092"
+  #     - "9093:9093"
+  #   environment:
+  #     KAFKA_CFG_NODE_ID: 1
+  #     KAFKA_CFG_PROCESS_ROLES: controller,broker
+  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+  #     KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+  #     KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  #     KAFKA_KRAFT_CLUSTER_ID: L7qLQmsqRLyIxENaxRzgYw
+  #     ALLOW_PLAINTEXT_LISTENER: yes
+  #   volumes:
+  #     - kafka-data:/bitnami/kafka
 
  
 volumes:
