@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Temporalio.Worker;
 
 namespace CheckoutOrchestrator
@@ -17,6 +18,7 @@ namespace CheckoutOrchestrator
         {
             _logger.LogInformation("Worker starting at: {time}", DateTimeOffset.Now);
             await _temporalWorker.ExecuteAsync(stoppingToken);
+            _logger.LogInformation("Temporal Worker stopped at: {time}", DateTimeOffset.Now);
         }
     }
 }

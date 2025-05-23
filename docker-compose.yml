@@ -228,7 +228,6 @@ services:
       ConnectionStrings__DefaultConnection: "Server=sql-server,1433;Database=AuthDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
       ASPNETCORE_ENVIRONMENT: Development
 
- 
   catalog-service:
     build:
       context: .
@@ -358,6 +357,46 @@ services:
       ASPNETCORE_ENVIRONMENT: Development
       ConnectionStrings__OrderDb: "Server=sql-server,1433;Database=OrderDb;User Id=sa;Password=Welcome@123;TrustServerCertificate=True;"
       CartService__BaseUrl: "http://cart-service:8080"
+      Temporal__Address: "temporal:7233"
+
+  checkout-orchestrator:
+    build:
+      context: .
+      dockerfile: CheckoutOrchestrator/Dockerfile
+    container_name: checkout-orchestrator
+    # ports:
+    #   - "5008:8080"  # Adjust the host port as needed
+    depends_on:
+      - auth-service
+      - order-service
+      - inventory-service
+      - temporal
+    volumes:
+      - ./wait-for-it.sh:/wait-for-it.sh:ro
+    entrypoint:
+      - /wait-for-it.sh
+      - auth-service:8080
+      - --timeout=300
+      - -- 
+      - /wait-for-it.sh
+      - order-service:8080
+      - --timeout=300
+      - -- 
+      - /wait-for-it.sh
+      - inventory-service:8080
+      - --timeout=300
+      - -- 
+      - /wait-for-it.sh
+      - temporal:7233
+      - --timeout=300
+      - -- 
+      - dotnet
+      - CheckoutOrchestrator.dll
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      AuthService__BaseUrl: "http://auth-service:8080"
+      OrderService__BaseUrl: "http://order-service:8080"
+      InventoryService__BaseUrl: "http://inventory-service:8080"
       Temporal__Address: "temporal:7233"
 
 
