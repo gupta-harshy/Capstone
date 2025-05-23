@@ -85,5 +85,17 @@ namespace AuthService.Infrastructure.Services
                 ExpiresAt = expires
             };
         }
+
+        public async Task<AuthResponse> GenerateTokenByUserIdAsync(Guid userId)
+        {
+            var user = await _context.Users.FirstOrDefaultAsync(u => u.Id == userId);
+            if (user == null)
+            {
+                throw new ArgumentException("User not found");
+            }
+
+            var response = await GenerateTokenAsync(user);
+            return response;
+        }
     }
 }

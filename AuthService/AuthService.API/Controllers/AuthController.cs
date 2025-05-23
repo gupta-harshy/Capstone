@@ -39,4 +39,19 @@ public class AuthController : ControllerBase
         var result = await _authService.RefreshTokenAsync(request);
         return Ok(result);
     }
+
+    [AllowAnonymous]
+    [HttpPost("generate-token-userid")]
+    public async Task<IActionResult> GenerateTokenByUserId([FromBody] Guid userId)
+    {
+        try
+        {
+            var result = await _authService.GenerateTokenByUserIdAsync(userId);
+            return Ok(result);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+    }
 }
