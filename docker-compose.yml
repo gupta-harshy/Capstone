@@ -369,6 +369,7 @@ services:
     depends_on:
       - auth-service
       - order-service
+      - cart-service
       - inventory-service
       - temporal
     volumes:
@@ -397,6 +398,7 @@ services:
       AuthService__BaseUrl: "http://auth-service:8080"
       OrderService__BaseUrl: "http://order-service:8080"
       InventoryService__BaseUrl: "http://inventory-service:8080"
+      CartService__BaseUrl: "http://cart-service:8080"
       Temporal__Address: "temporal:7233"
 
 
